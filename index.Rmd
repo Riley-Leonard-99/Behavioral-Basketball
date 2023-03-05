@@ -1,0 +1,168 @@
+---
+title: 'Behavioral Basketball'
+author: 'Riley Leonard'
+date: 'May 2022'
+institution: 'Reed College'
+division: 'History and Social Sciences'
+advisor: 'Jon Rork'
+# If you have more two advisors, un-silence line 7
+#altadvisor: 'Your Other Advisor'
+department: 'Economics'
+degree: 'Bachelor of Arts'
+knit: bookdown::render_book
+site: bookdown::bookdown_site
+
+# The next two lines allow you to change the spacing in your thesis. You can 
+# switch out \onehalfspacing with \singlespacing or \doublespacing, if desired.
+header-includes:
+    - \usepackage{setspace}\onehalfspacing
+    - \usepackage{caption}
+    - \captionsetup[figure]{font=small}
+    - \usepackage[compact]{titlesec}
+
+# This will automatically install the {remotes} package and {thesisdown}
+# Change this to FALSE if you'd like to install them manually on your own.
+params:
+  'Install needed packages for {thesisdown}': True
+  
+# Remove the hashtag to specify which version of output you would like.
+# Can only choose one at a time.
+output:
+  thesisdown::thesis_pdf: default 
+#  thesisdown::thesis_gitbook: default         
+#  thesisdown::thesis_word: default
+#  thesisdown::thesis_epub: default
+
+# If you are creating a PDF you'll need to write your preliminary content 
+# (e.g., abstract, acknowledgements) below or use code similar to line 25-26 
+# for the .RMD files. If you are NOT producing a PDF, delete or silence
+# lines 25-39 in this YAML header.
+abstract: |
+  While the practice of data collection in professional sports existed at the inception of the National Basketball Association (NBA), the use of more advanced statistical analysis in player evaluation became ubiquitous only in recent years. Coaches, managers, and players are now aware of the advantages of utilizing empirical insights when facilitating in-game decisions---a discovery that has motivated dramatic changes in teams’ strategic approaches to the sport. Because we are concerned with the study of these in-game decisions, we thus turn to the field of behavioral economics. Employing a behavioral economic framework (in conjunction with the aforementioned statistical analysis) offers a unique understanding of the factors that determine individual decisions---specifically, player shooting decisions. The succeeding research anyalyzes these shooting decisions by assessing individual shot data in concert with a number of behavioral economic theories, including prospect theory and the hot hand fallacy. Through our analysis, we evince heterogeneity in expected utility with respect to different risk environments, as well as assymmetries in aggregate risk preferences based on game context.
+  
+# If you'd rather include the preliminary content in files instead of inline
+# like below, use a command like that for the abstract above.  Note that a tab 
+# is needed on the line after the `|`.
+acknowledgements: |
+ To start, I want to sincerely thank Jon and Tristan. Jon, for your guidance and support over the course of the thesis-writing process. You motivated me to pursue my passions, both in this thesis and beyond. Tristan, thank you for providing so many opportunities over the past four years. You are the economist I admire most.  
+ 
+ &nbsp;
+  
+ My most heartfelt thanks to...
+  
+  > ***Mum, Dad, Jack, Mishi, and Nunu***, your love and support mean more than I can put into words.
+  
+  > ***Andrew***, my ride or die from the very start. From Sitka Ball to Staturdays, you've always been my favorite teammate.
+  
+  > ***Curtis***, forever my Captain Gameplay. In a perfect world, men like you would exist....this must be a perfect world.
+  
+  > ***Dante***, I could always count on you for Costco Friday. The only thing better than your food court culinary innovations is your company.
+  
+  > ***Ethan***, to a little bit of chicken fried. Your boundless joy is such a treat.
+  
+  > ***Grisha***, the perfect moving picture buddy. You're a sky full of stars!
+  
+  > ***Jimmy***, the world's greatest roommate and Italian restaurant coproprietor. You never fail to make me laugh, especially in our late-night deliriums. Reed College: sorted.
+  
+  > ***Paul***, the softball executive of the year. Your devotion amazes me.
+  
+  > ***S.K.***, I truly high-rolled with your friendship. I'll never forget the classes, conversations, and moving pictures we shared.
+  
+  > ***Tony***, a man of many nicknames and even more sound effects. I admire so much your willingness to help others. Stay snoozing and winning.
+  
+  > ***Zonya***, the Dame to my C.J. I'm so happy we got the chance to experience an atmospheric river together.
+  
+  Thank you to all of the other incredible and inspiring people I met at Reed: Ben, Deven, Ian, Josh P., Josh Y., Kam, Katy, Max, Nat, Peri, Rafa, Simon, Suhas, and Zach. I appreciate you all enormously and I couldn't have done any of this without you. You all have hearts of gold. Thank you Colby Hansen, for catalyzing my entire scholastic journey. Thank you to my wonderful professors: Felipe, Jasmine, Jonathan, Kelly, Kim, Nate, and Shohei. Thank you Dong, Justin, Sheep, Spoi, and Yab. Thank you mailroom staff. Thank you basketball team, volleyball club, and chess club. Thank you reader!
+  
+
+# Specify the location of the bibliography below
+bibliography: bib/thesis.bib
+# Download your specific csl file and refer to it in the line below.
+csl: csl/apa.csl
+lot: true
+lof: true
+---
+
+<!--
+Above is the YAML (YAML Ain't Markup Language) header that includes a lot of 
+metadata used to produce the document.  Be careful with spacing in this header!
+
+If you'd prefer to not include a Dedication, for example, simply delete the section entirely, or silence them (add # before each line). 
+
+If you have other LaTeX packages you would like to include, delete the # before header-includes and list the packages after hyphens on new lines.
+
+If you'd like to include a comment that won't be produced in your resulting file enclose it in a block like this.
+
+If you receive a duplicate label error after knitting, make sure to delete the index.Rmd file and then knit again.
+-->
+
+```{r include_packages, include=FALSE}
+# This chunk ensures that the thesisdown package is
+# installed and loaded. This thesisdown package includes
+# the template files for the thesis.
+if (!require(remotes)) {
+  if (params$`Install needed packages for {thesisdown}`) {
+    install.packages("remotes", repos = "https://cran.rstudio.com")
+  } else {
+    stop(
+      paste('You need to run install.packages("remotes")",
+            "first in the Console.')
+    )
+  }
+}
+if (!require(thesisdown)) {
+  if (params$`Install needed packages for {thesisdown}`) {
+    remotes::install_github("ismayc/thesisdown")
+  } else {
+    stop(
+      paste(
+        "You need to run",
+        'remotes::install_github("ismayc/thesisdown")',
+        "first in the Console."
+      )
+    )
+  }
+}
+library(thesisdown)
+# Set how wide the R output will go
+options(width = 70)
+```
+
+<!--
+The acknowledgments, preface, dedication, and abstract are added into the PDF
+version automatically by inputting them in the YAML at the top of this file.
+Alternatively, you can put that content in files like 00--prelim.Rmd and
+00-abstract.Rmd like done below.
+-->
+
+
+
+```{r eval=!knitr::is_latex_output(), child=here::here("prelims", "00--prelim.Rmd")}
+
+```
+
+```{r eval=!knitr::is_latex_output(), child=here::here("prelims", "00-abstract.Rmd")}
+
+```
+
+<!-- The {.unnumbered} option here means that the introduction will be 
+"Chapter 0." You can also use {-} for no numbers on chapters.
+-->
+
+# Introduction {.unnumbered}
+
+*“That’s a bad shot.”*
+
+<p>&nbsp;</p>
+
+Those were the infamous words muttered by then-Thunder small forward Paul George following his team’s heartbreaking playoff exit at the hands of Damian Lillard’s Portland Trail Blazers. Lillard ended the series on a 37-foot three-pointer in the dying seconds of Game Five---a bewildering shot attempt that elicited George’s incredulity. George, who defended Lillard on that game-winning play, was not completely unfounded in his skepticism. 
+
+Lillard’s buzzer beater was the type of shot decision that would have been inconceivable in previous eras of the sport’s history. A tightly-contested jump shot from that range was once unheard of, especially in such a decisive moment. That being said, the perpetually evolving state of outside shooting in the National Basketball Association (NBA) has driven players to attempt increasingly difficult field goals over time. Now, the seemingly unlimited shooting ranges of players like Damian Lillard, Stephen Curry, and Trae Young are forcing basketball analysts to completely reconsider what the notion of a “good shot” is.
+
+In the most rudimentary sense, a good shot in the sport of basketball is any field goal attempt that improves a team’s chances of winning a game. A good shot might be a layup or it might be a fadeaway. In any case, a good shot has a sufficient probability of scoring points for a team and increasing their likelihood of winning. Economically speaking, a good shot decision has a greater expected utility than a bad shot decision. But the best shots, the ones that fans remember for years to come---ones like Damian Lillard’s iconic game-winner---arrive in moments where the stakes are highest. 
+
+As a result, we are interested in not only assessing basketball shooting decisions on the whole, but also in specific contexts. How do players behave in environments of increased risk and uncertainty? The succeeding research attempts to answer this question by analyzing shooting data through an economic framework and situating individual shot attempts in their respective contexts.
+
+The first chapter of this exploration constructs a model of the expected utility of field goal attempts, while outlining the economic rationale, statistical methods, and empirical outcomes. The modeling results in this chapter provide insights about both aggregate behavior and the relative performances of individual teams and players. The second chapter, meanwhile, reassesses these modeling results through a behavioral economic lens. By considering deviations in utility maximizing behavior, we are able to evaluate the impact of risk and uncertainty on player decision making. Finally, the third chapter introduces a specific behavioral heuristic: the hot hand fallacy. This chapter aims to deduce whether or not the lay perception that players become “hot”--- that is, more likely to make a shot attempt after having converted one or more preceding shot attempts---is fallacious.
+
+Ultimately, we intend to determine whether or not NBA players, as economic agents, corroborate prevailing academic theories on individual decision making. The availability and robustness of basketball data make the sport an inviting domain for quantitative analysis, and the empirical approaches in this study have germane applications in the field of economics. Subsequently, utilizing the attained economic inferences about player decision making should lead to better understandings about human behavior in general, particularly in the face of uncertainty. 

@@ -1,0 +1,216 @@
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+## Load CSV
+
+hot_data <- read_csv("/home/leonardr/my_thesis/Data/shot_logs.csv")
+
+## Sampling and Subsetting
+
+set.seed(0)
+
+# Create SHOT_ID
+
+hot_data <- hot_data %>%
+  mutate(SHOT_ID = row_number())
+
+# Sample Data
+
+sample <- sample(hot_data$SHOT_ID, size = 1000)
+
+# Sample Data Frame
+
+sampleData <- as.data.frame(sample) %>%
+  rename(SHOT_ID = "sample")
+
+# Join Data
+
+sampleData_join <- left_join(x = sampleData, y = hot_data, by = "SHOT_ID")
+
+## Model
+
+model <- glm(FGM ~ SHOT_DIST*CLOSE_DEF_DIST + TOUCH_TIME + SHOT_CLOCK, 
+             data = sampleData_join, family = "binomial")
+
+expct <- predict(model, hot_data, type = "response")
+
+hot_data <- cbind(hot_data, expct)
+
+## Select Variables
+
+hot_data <- hot_data %>%
+  select(GAME_ID, SHOT_NUMBER, PTS_TYPE, FGM, player_name, expct)
+
+## Standardize and Filter Data
+
+hot_data_three <- hot_data %>%
+  filter(PTS_TYPE == "3") 
+
+hot_data_filt <- hot_data %>%
+  mutate(stand_expct = scale(expct))
+
+hot_data_three_filt <- hot_data_three %>%
+  mutate(stand_expct = scale(expct))
+
+hot_data_filt <- hot_data_filt %>%
+  filter(abs(stand_expct) <= 1)
+
+hot_data_three_filt <- hot_data_three_filt %>%
+  filter(abs(stand_expct) <= 1)
+
+## Arrange Data
+
+hot_data <- hot_data %>%
+  group_by(GAME_ID) %>%
+  mutate(lag_shot = lag(FGM))
+
+hot_data_filt <- hot_data_filt %>%
+  group_by(GAME_ID) %>%
+  mutate(lag_shot = lag(FGM))
+
+hot_data_three <- hot_data_three %>%
+  group_by(GAME_ID) %>%
+  mutate(lag_shot = lag(FGM))
+
+hot_data_three_filt <- hot_data_three_filt %>%
+  group_by(GAME_ID) %>%
+  mutate(lag_shot = lag(FGM))
+
+## Summarize Probabilities
+
+hot_hand <- hot_data %>%
+  group_by(lag_shot) %>%
+  summarise(shooting_prob = mean(FGM))
+
+print(hot_hand)
+
+hot_hand_filt <- hot_data_filt %>%
+  group_by(lag_shot) %>%
+  summarise(shooting_prob = mean(FGM))
+
+print(hot_hand_filt)
+
+hot_hand_three <- hot_data_three %>%
+  group_by(lag_shot) %>%
+  summarise(shooting_prob = mean(FGM))
+
+print(hot_hand_three)
+
+hot_hand_three_filt <- hot_data_three_filt %>%
+  group_by(lag_shot) %>%
+  summarise(shooting_prob = mean(FGM))
+
+print(hot_hand_three_filt)
+```
+
+# The Hot Hand Fallacy
+
+## Origins of the Hot Hand
+
+Another popular cognitive phenomenon in the field of behavioral economics, the hot hand fallacy was first described in the context of basketball explicitly. While the hot hand fallacy more generally explains people's inability to properly judge random sequences, economists Thomas Gilovich, Robert Vallone, and Amos Tversky introduced the concept by questioning the perception that basketball players have "hot hands". As the authors explain, "basketball players and fans alike tend to believe that a player's chance of hitting a shot are greater following a hit than following a miss on the previous shot." (Gilovich et al. 1985) The three economists proceeded to dismiss the notion of a hot hand by analyzing the shooting records of the Philadelphia 76ers and Boston Celtics, finding no evidence for a positive correlation between the outcomes of successive shots.
+
+Gilovich then performed a controlled experiment on the men and women basketball teams at Cornell University. The experiment found that the outcomes of previous shots influenced the players' predictions for the outcomes of following shots, but not the outcomes themselves. This led Gilovich to conclude that, while belief in the hot hand is evident, the phenomenon itself is empirically unfounded---merely the result of participants' cognitive biases.
+
+Studies on the hot hand, including the aforementioned 1985 paper, draw from the broader notion of the representativeness heuristic proposed by Kahneman and Tversky over a decade earlier. The representativeness heuristic refers to any decision-making shortcut made by individuals when attempting to form judgments about events with uncertain probabilities (Kahneman & Tversky 1974). In the case of the 1985 basketball study, Gilovich, Vallone, and Tversky find that the detection of streaks in random sequences is attributed to a "general misconception of chance according to which even short random sequences are thought to be highly representative of their generating process".
+
+## Literature Review
+
+Subsequent research on the hot hand phenomenon has evinced conflicting results regarding its validity. A 2003 study of NBA three-point shooting contests supported the fallacy, finding no "sequential dependency within each shooters and across all shots" (Koehler & Conley 2003). Conversely, a more recent study using similar three-point shooting contest data found "considerable evidence of hot hand shooting in and across individuals" (Miller & Sanjurjo 2021). This work, along with a 2011 study of free throw shooting attempts that found "strong evidence for the hot hand phenomenon at the individual level" (Yaari et al. 2011), elicited such findings by applying statistical techniques that controlled for the "large statistical bias" in the measures used in the canonical study of Gilovich, Vallone, and Tversky.
+
+The suggested bias in the foundational studies of the hot hand is that the sport of basketball inherently allows "sufficient opportunity for defensive responses to equate shooting probabilities across players." (Green & Zwiebel 2013) Researchers at Stanford University controlled for this bias by using data from Major League Baseball, finding evidence of the existence of the hot hand in ten different statistical categories (Green & Zwiebel 2013). The researchers posit that baseball defenses are unable to make the same in-game adjustments as basketball players, and such defensive adaptations in basketball may be responsible for the absence of the hot hand effect empirically.
+
+In any case, people's conviction in the hot hand remains ubiquitous. A detailed study on football betting data (Paul et al. 2012) and interviews with NBA players (Stein et al. 2014) reveal an insistence in the hot hand effect from both fans and players respectively. Because the hot hand phenomenon remains somewhat equivocal, the following analysis intends to determine whether or not the 2014-15 shot tracking data corroborates the canonical findings (Gilovich et al. 1985) or more recent contradictions. In other words, is the hot hand a cognitive social bias, or a legitimate empirical phenomenon?
+
+## Methodology
+
+### Conditional Probability
+
+Methodologically, testing the hot hand is a straightforward exercise of comparing different conditional probabilities. As stated by Gilovich, "basketball players and fans alike tend to believe that a player's chance of hitting a shot are greater following a hit than following a miss on the previous shot." This implies that, in order to analyze the effect of the hot hand on individual players, we simply compare the conditional probability of converting a field goal given that the last field goal attempt by the same player was a failure to the conditional probability of converting a field goal given that the last field goal attempt by the same player was a success. We then expand the size of the data lag to two and three shots to see if the hot hand effect appears after a shooting streak of a specific length.
+
+### Controlling for Shot Difficulty
+
+As suggested by the authors in the aforementioned studies, controlling for the confounds of game action is one of the biggest challenges in assessing the hot hand. This fact makes the study of free-throws and three-point shooting contests more accessible for researchers, as the observational events occur in a more controlled quasi-experimental environment. However, we are interested in discerning a potential hot hand phenomenon in live games, and because we established a variable for quantifying shot difficulty in the first chapter ($exFG\%$), we can mostly control for the different factors informing shot difficulty (since expected field goal percentage is informed by shot distance, defender distance, shot clock, etc.). To do this, we first standardize the expected field goal percentage of each observation. Then, we remove any observations greater than one standard deviation away from the mean expected field goal percentage, thus eliminating any particulary high- or low-probability shot attempts.
+
+## Results
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+table3 <- read_csv("Data/table3.csv")
+
+table3 <- table3 %>%
+  rename(`FG% ` = `FG%...2`,
+         `FG%` = `FG%...3`,
+         ` FG%` = `FG%...4`,
+         ` FG% ` = `FG%...5`)
+
+
+kbl(table3, booktabs = T, caption = "Conditional Field Goal Percentage by Previous Shot Outcome") %>%
+add_header_above(c(" ", "All Attempts" = 1, "All Attempts (Controlled)" = 1, "Three-point Attempts" = 1, "Three-point Attempts (Controlled)" = 1)) %>%
+kable_classic(full_width = F, html_font = "Serif") %>%
+  kable_styling(latex_options = c("scale_down"))
+  
+```
+
+
+There is no statistical evidence of a hot hand in the 2014-15 shot tracking data. In fact, mean conditional field goal percentage is actually lower given a make on the previous shot attempt versus a miss on the previous shot attempt. This is true even when controlling for shot type and shot difficulty ($exFG\%$).
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+table4 <- read_csv("Data/table4.csv")
+
+table4 <- table4 %>%
+  rename(`FG% ` = `FG%...2`,
+         ` FG%` = `FG%...3`)
+
+
+kbl(table4, booktabs = T, caption = "Conditional Field Goal Percentage by Success Streak") %>%
+add_header_above(c(" ", "Three-point Attempts" = 1, "Three-point Attempts (Controlled)" = 1)) %>%
+kable_classic(full_width = F, html_font = "Serif") %>%
+  kable_styling(latex_options = c("HOLD_position"))
+```
+
+```{r echo=FALSE, fig.height=3, fig.width=6, message=FALSE, warning=FALSE, fig.cap="Line graph illustrating the association between three-point field goal percentage and success streak (for both difficulty-controlled and all observations)."}
+streaks <- read_csv("Data/streaks.csv")
+
+streaks <- streaks %>%
+  rename(`Shot Type` = Typye,
+         `3PT FG%` = `FG%`)
+
+ggplot(streaks,
+       aes(x = Streak,
+           y = `3PT FG%`,
+           color = `Shot Type`)) +
+  geom_line(lwd = 2, alpha = 0.5) +
+  geom_point(size = 2, alpha = 1, aes(fill = `Shot Type`)) +
+  scale_y_continuous(limits = c(0.3, 0.4)) +
+  theme_classic()
+
+```
+
+  
+  
+When looking at streaks (consecutive successes) of three-point field goal attempts, we again find no evidence of a hot hand effect. Mean field goal percentage decreases marginally as the streak of successful three-point attempts increases, with a more substantial drop in mean field goal percentage following streaks of three or more. This directly contradicts the idea of a hot hand, with shooter performance diminishing with more sequential successes. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+table6 <- read_csv("Data/table6.csv")
+
+kbl(table6, booktabs = T, caption = "Mean Shot Defender Distance by Success Streak") %>%
+kable_classic(full_width = F, html_font = "Serif") %>%
+  kable_styling(latex_options = c("HOLD_position")) %>%
+  kable_styling(latex_options = c("scale_down"))
+  
+```
+
+
+A common explanation for the inability to substantiate the hot hand empirically is that defenses adjust to more tightly defend hot shooters (Green & Zwiebel 2013). However, patterns revealed in the data show only an insignificant decrease in mean defender distance as the number of sequential successes increases.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+table5 <- read_csv("Data/table5.csv")
+
+kbl(table5, booktabs = T, caption = "Mean Three-point Difficulty by Success Streak") %>%
+kable_classic(full_width = F, html_font = "Serif") %>%
+  kable_styling(latex_options = c("HOLD_position"))
+```
+
+
+Finally, we find that shot difficulty does not significantly change with respect to the length of a given three-point shooting streak. Watching basketball, it is not unheard of to see players attempt markedly more difficult shots during a perceived hot streak---what fans and announcers refer to as a "heat check". While players appear to settle for easier shot attempts when establishing a streak (having missed the previous shot or not attempted any shots), the change in mean expected field goal percentage is virtually non-existent as the hot streak grows, dispelling the notion of a heat check as mostly anecdotal. 
+
+In conjunction, the above outcomes support the original findings of Thomas Gilovich, Robert Vallone, and Amos Tversky. While belief in the hot hand is certainly real, the phenomenon itself is not, according to our results. This discrepancy thus corroborates the hot hand *fallacy*.
+

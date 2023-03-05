@@ -1,0 +1,681 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(kableExtra)
+library(stargazer)
+library(corrr)
+library(stringr)
+library(randomForest)
+library(caret)
+library(ggridges)
+library(cluster)
+library(factoextra)
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+## Load CSVs
+games <- read_csv("Data/2014-2015.csv")
+shots <- read_csv("Data/shot_logs.csv")
+
+
+## Wrangling
+
+# Select Variables (Game Log)
+
+games <- games %>%
+  dplyr::select(game_id, date, period, away_score, home_score, remaining_time, elapsed, play_id,
+         team, player, event_type, result, points, assist, play_length, type, 
+         shot_distance, original_x, original_y, converted_x, converted_y, description) %>%
+  filter(event_type == "shot") %>%
+  filter(game_id < 21400909)
+
+# Average Lead Variable
+
+summary <- games %>%
+  mutate(pts_diff = away_score - home_score) %>%
+  group_by(game_id, period) %>%
+  summarize(AVG_DIFF = mean(pts_diff)) %>%
+  mutate(AVG_DIFF = format(round(AVG_DIFF, 3), nsmall = 3))
+
+
+# Create Period ID
+
+shots$PERIOD_ID <- paste0(shots$GAME_ID, shots$PERIOD)
+summary$PERIOD_ID <- paste0(summary$game_id, summary$period)
+
+
+# Join Data
+
+summary <- summary %>%
+  dplyr::select(PERIOD_ID, AVG_DIFF)
+  
+shots <- left_join(shots, summary, by = "PERIOD_ID")
+
+
+# Final Clean Up (2014-2015)
+
+data <- shots %>%
+  drop_na() %>%
+  dplyr::select(-MATCHUP, -CLOSEST_DEFENDER, -CLOSEST_DEFENDER_PLAYER_ID, -game_id) %>%
+  rename(DIST = SHOT_DIST,
+         DEF_DIST = CLOSE_DEF_DIST)
+
+
+## Summary Data
+
+summary_data <- data %>%
+  drop_na() %>%
+  group_by(player_name) %>%
+  summarize(`AVG DIST` = mean(DIST),
+            `AVG DRIBBLES` = mean(DRIBBLES),
+            `AVG TOUCH_TIME` = mean(TOUCH_TIME),
+            `AVG DEF_DIST` = mean(DEF_DIST),
+            `AVG SHOT_CLOCK` = mean(SHOT_CLOCK),
+            `AVG DIFF` = mean(as.numeric(AVG_DIFF)),
+            fg = sum(FGM == 1),
+            fga = (sum(FGM == 0)) + sum(FGM == 1),
+            `FG%` = fg/fga,
+            threes = sum(PTS == 3),
+            `eFG%` = (fg + 0.5*threes)/fga,
+            `PTS/FGA` = mean(PTS)/fga)
+
+summary_data <- summary_data %>%
+  filter(fga >= 100)
+
+
+## Savant Data Frame
+
+savant1 <- read_csv("Data/train1.csv")
+savant2 <- read_csv("Data/train2.csv")
+savant3 <- read_csv("Data/train3.csv")
+savant4 <- read_csv("Data/train4.csv")
+savant5 <- read_csv("Data/train5.csv")
+savant6 <- read_csv("Data/train6.csv")
+
+savant <- rbind(savant1, savant2, savant3, savant4, savant5, savant6)
+
+savant <- savant %>%
+  dplyr::select(x, y, name, team_name, period, minutes_remaining, 
+                seconds_remaining, shot_made_flag, shot_distance, 
+                dribbles, touch_time, defender_distance, shot_clock, shot_type) %>%
+  filter(shot_distance < 47) %>%
+  mutate(shot_outcome = as_factor(shot_made_flag))
+
+savant <- savant %>%
+  rename(FGM = shot_outcome,
+         DIST = shot_distance,
+         DRIBBLES = dribbles,
+         TOUCH_TIME = touch_time,
+         DEF_DIST = defender_distance,
+         SHOT_CLOCK = shot_clock,
+         TYPE = shot_type)
+
+savant$TYPE <- substr(savant$TYPE, 1, 1)
+  
+savant$TYPE <- as.numeric(savant$TYPE)
+
+
+## Sampling and Subsetting
+
+set.seed(0)
+
+# Create SHOT_ID
+
+data <- data %>%
+  mutate(SHOT_ID = row_number())
+
+# Sample Data
+
+sample <- sample(data$SHOT_ID, size = 1000)
+
+# Sample Data Frame
+
+sampleData <- as.data.frame(sample) %>%
+  rename(SHOT_ID = "sample")
+
+# Join Data
+
+sampleData_join <- left_join(x = sampleData, y = data, by = "SHOT_ID")
+
+```
+
+# Modeling the Expected Utility of Field Goal Attempts
+
+## Data
+
+The real-time tracking of professional athletes involves the implementation of relatively novel technology. Cameras, which are installed in the catwalks of every NBA arena, feed optical data into the league’s tracking software at a rate of 25 frames per second.  SportVU---the company responsible for developing the optical tracking technology---was initially contracted by four individual teams to provide the service in 2010, but the technology was eventually adopted league-wide in 2013. Since then, the NBA has recorded player movement and shot tracking data for every regular and postseason game. While this tracking data was once publicly accessible through an application programming interface (API), it has since become proprietary, with the 2014-15 season representing the last fully available public data set.  
+
+As a result, the data used in this exploration is from the aforementioned 2014-15 season. The data set was compiled from the NBA’s API by data scientist Dan Becker. Of course, it is important to note the caveat that in today’s ever-evolving game of basketball, even seven year old data can become somewhat obsolete. That being said, the 2014-15 data set is still contemporaneous with the most recent tracking data, having occurred in the same era of expanding three-point shooting volume.  
+
+The data set contains information for every individual field goal attempt during the entirety of the regular season. Each of the 205,185 observations represents a unique shot attempt, with columns describing various attributes of both the result and context of the shot. The shot tracking data set was combined with play-by-play data from BigDataBall to provide additional context and environment variables, which are particularly important for later economic analysis. Each relevant variable is defined below:  
+
+\small
+
+> **Player Name (PLAYER)**: the full name of the player responsible for the field goal attempt.
+
+> **Field Goal Type (TYPE)**: the classification of the shot as either a three-point or two-point field goal attempt.
+
+> **Field Goals Made (FGM)**: an indicator variable assessing the success (1) or failure (0) of the field goal attempt.
+
+> **Points (PTS)**: the point value resulting from the field goal attempt (0 for a miss, 2 or 3 for a successful shot).
+
+> **Shot Distance (DIST)**: the distance (in feet) of the field goal attempt.
+
+> **Defender Distance (DEF_DIST)**: the distance (in feet) of the nearest defender to the shooter at the point of release.
+
+> **Shot Clock (SHOT_CLOCK)**: the time (in seconds) remaining on the shot clock at the point of release.
+
+> **Dribbles (DRIBBLES)**: the number of dribbles completed by the shooting player preceding the field goal attempt. 
+
+> **Touch Time (TOUCH_TIME)**: the time (in seconds) the shooting player maintains possession of the basketball preceding the field goal attempt.   
+
+\normalsize
+
+
+
+## Methodology
+
+### Response Variable
+
+In order to evaluate the expected utility of shot attempts, we first develop a model predicting the expected field goal percentage ($exFG\%$) of an individual shot attempt as a function of the above variables. In the context of basketball, "utility" can be thought of as the value generated by a particular decision or play. In the case of shooting, we make the straightforward assumption that the utility produced by a shot attempt is simply the resulting number of points scored. As a result, we can think of the expected utility of a shot attempt as the expected number of points scored---a product of the expected field goal percentage and the point value of the field goal type:
+
+
+$$
+exPTS = exFG\% \cdot \begin{cases}2, & \text{if}\ \ TYPE=2 \\ 3, & \text{if}\ \ TYPE=3 \end{cases}
+$$
+
+### Modeling Strategy
+
+Given the nature of the determined response variable, logistic regression is likely the most appropriate modeling strategy. Logistic regression is particularly effective as it takes a binary response---in this case, the success or failure of a field goal attempt---and generates predictions in the form of probabilities. More specifically, the model estimates the log-odds of the binary response as a function of the selected parameter estimators (generalized below):
+
+$$
+ln\frac{p(x)}{1-p(x)} = \beta_1 + \beta_2x_1 + ... + \beta_kx_k + \varepsilon
+$$
+
+The log-odds produced by the logistic regression are then converted to a probability using a logistic function. In this particular study, the resulting probability directly translates to the expected field goal percentage of an individual shot attempt ($exFG\%$). This probability can be multiplied by the point value of the shot type (either a two-point or three-point attempt) to calculate the expected utility of the shot decision. To visualize the logistic function, Figure 1.1 offers an example of a simple logistic regression with shot distance as the only predictor.
+
+
+```{r echo=FALSE, fig.height=4, fig.width=6, message=FALSE, warning=FALSE, fig.cap="Field goals made plotted against shot distance, with the logistic curve overlaid. The range of the x-axis is extended to reveal the full characteristic S-shape of the logistic function."}
+# Logistic Curve Example
+
+ggplot(data, aes(x = DIST, y = FGM)) + 
+  geom_point(size = 2, alpha = 0.05, color = "darkorange") +
+    stat_smooth(method = "glm", se = FALSE, fullrange = TRUE, method.args = list(family = binomial),
+                color = "grey60", alpha = 0.3) + 
+  labs(x = "Shot Distance (ft)",
+       y = "Field Goals Made") +
+  xlim(-50, 100) +
+  theme_classic()
+```
+
+
+While logistic regression is a comprehensible and computationally inexpensive way to model the shot tracking data, it still possesses some disadvantages. Similar to linear regression, the simplicity of the logistic model has its caveats, namely when it comes to capturing more complex relationship between variables (as the model assumes a linear relationship between the predictors and response). Logistic regression also demands little or no multicollinearity between independent variables, as the coefficient estimates of the model parameters may become highly sensitive to otherwise small modeling changes when predictors are highly correlated. In worse cases, multicollinearity may lead to inferences about the relationships between variables that are altogether inaccurate. Consequently, predictor selection is critical to constructing an accurate logistic model. 
+
+### Selecting Predictors
+
+The first step in determining a good subset of predictors is to perform some exploratory analysis on the relationships between variables in the data set. In Figure 1.2, we see that many individual correlations are relatively weak. Aggregating and summarizing the data by player reveals these relationships more clearly, such as in Figure 1.3. In either case, the most important variable in the exploratory analysis is our response, $FGM$ (or $FG\%$ in aggregate). Unsurprisingly, shot distance proves to have the strongest correlation with the outcome of a field goal attempt. The moderate positive correlation between average shot clock and field goal percentage also makes sense, as players are not as pressured to settle for less favorable shot attempts with more time on the shot clock. What comes as more of a shock is the pronounced negative relationship between average closest defender distance and field goal percentage---a fact that contradicts domain knowledge about the sport (as we assume that tighter defense results more difficult field goal attempts).
+
+```{r echo=FALSE, fig.height=4, fig.width=6, message=FALSE, warning=FALSE, fig.cap="Correlogram illustrating correlations between predictors."}
+# Correlogram
+
+quant_data <- select_if(data, is.numeric)
+
+quant_data <- quant_data %>% 
+  dplyr::select(-GAME_ID, -player_id, -PERIOD, -SHOT_NUMBER, -FINAL_MARGIN, -PTS_TYPE, -SHOT_ID)
+
+quant_data %>%
+  correlate() %>%
+  rearrange() %>%
+  shave() %>%
+  rplot(shape = 19, 
+        colours = c("indianred2", "white", "skyblue1"),
+        print_cor = TRUE) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+
+```
+
+```{r echo=FALSE, fig.height=4, fig.width=6, message=FALSE, warning=FALSE, fig.cap="Correlogram illustrating correlations between aggregated predictors."}
+# Correlogram (Aggregated Data)
+
+quant_summary <- select_if(summary_data, is.numeric)
+
+quant_summary <- quant_summary %>%
+  dplyr::select(-fg, -fga, -threes, -`eFG%`, -`AVG DIFF`) 
+
+
+quant_summary %>%
+  correlate() %>%
+  rearrange() %>%
+  shave() %>%
+  rplot(shape = 19, 
+        colours = c("indianred2", "white", "skyblue1"),
+        print_cor = TRUE,) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+
+```
+
+These spurious relationships are the result of multicollinearity between variables. Most notably, there is a strong positive correlation between shot distance and closest defender distance—--the likely source of the previously discussed negative relationship between defender distance and field goal percentage. Thus, an essential inclusion to the logistic regression model is an interaction effect between defender distance and shot distance. This aims to address the collinearity identified in the correlogram and a more intuitive observation about the sport: the effect of defensive pressure on shot outcome varies greatly in space (see Figure 1.4). This is evident watching professional basketball, as a closely contested layup is easier to convert than a closely contested jump shot. In fact, the positive correlation between defender distance and field goal percentage only exists because the highest likelihood shot attempts occur in crowded areas (i.e., the paint). An interaction effect therefore attempts to account for the true negative relationship between defender distance and field goal percentage that can be ascertained through domain knowledge about basketball defending, specifically the value of good rim protection and perimeter defense. 
+
+
+![Kernel density estimation of the relationship between defender distance and expected field goal percentage in space. Built using a geographically-weighted regression of the same data and predictors.](Plots/GWR.png){width=20%, height=32%}
+
+In addition to the interaction term for defender distance and shot distance, two other variables (touch time and shot clock) were selected for inclusion in the model through a process of manual stepwise selection. While both dribbles and touch time exhibit modest correlation with the response variable, the two predictors are almost perfectly correlated to each other. In this case of collinearity, completely excluding one of the two variables will likely improve model variance at very little expense to model bias, given that the two predictors are highly substitutable. Thus, dribbles was kept out of the model on account of its marginally weaker correlation to the response, as well as the weaker overall model fit produced in the stepwise selection.
+
+### Training Set
+
+Because it is computationally infeasible to train the logistic regression model on all 205,185 observations of the complete data set, a training data set was used for the machine learning process. Partitioning a smaller subset of data into a training set also mitigates the common issue of model overfitting, in turn reducing variance in the parameter estimates. To create the training data, 1000 observations were randomly sampled from the original data set.
+
+## Model Summary
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# Model
+
+model <- glm(FGM ~ DIST*DEF_DIST + TOUCH_TIME + SHOT_CLOCK, 
+             data = sampleData_join, family = "binomial")
+
+expct <- predict(model, data, type = "response")
+data <- cbind(data, expct)
+data <- data %>%
+  mutate(expts = expct*PTS_TYPE)
+
+summary(model)
+```
+
+```{r echo=FALSE, results='asis'}
+stargazer(model, type = "latex", header=FALSE,
+title = "Logistic Regression: Explaining Field Goal Probability")
+```
+
+
+As we can see in Table 1.1, the majority of coefficient estimates are statistically significant at the $\alpha = 0.1$ significance level, with the only insignificant coefficient estimate belonging to touch time. The most notable outcome of the model summary is the large positive coefficient estimate for defender distance. This is because---due to the presence of the interaction effect---the coefficient estimate for closest defender distance now complements our intuition, as opposed to the previously identified negative correlation between closest defender distance and field goal percentage in aggregate.
+
+Meanwhile, shot distance, touch time, and closest defender distance (as a function of shot distance) have negative coefficient estimates. This suggests that, holding all other independent variables constant, increasing either predictor will result in a decrease in the estimated probability of success for a given field goal attempt. On the other hand, the positive coefficient estimate for shot clock suggests that estimated field goal percentage is higher when there is more time left on the shot clock. The directions of these estimates all match domain-related expectations.
+
+```{r echo=FALSE, fig.height=3, fig.width=5, message=FALSE, warning=FALSE, fig.cap="ROC curve plotting sensitivity against type I error rate for the logistic regression model. The area under the curve is equal to approximately 0.62."}
+# ROC
+
+library(pROC)
+preds <- predict(model, data, type = "response")
+roc_curve <- roc(response = data$FGM, predictor = preds)
+ggroc(roc_curve, legacy.axes = TRUE) + theme_classic() + 
+    geom_segment(aes(x = 0, xend = 1, y = 0, yend = 1), color="grey", linetype="dashed")
+```
+
+
+While having statistically significant predictors is a necessary benchmark for any model, it says little about the model's predictive performance. In Figure 1.5, the accuracy of the logistic regression model is computed using a Receiver Operating Characteristic (ROC) curve. The ROC curve can assess the classification performance of any model with a binary response, making it the perfect diagnostic tool for logistic regression. In this case, the area under the curve represents the ability for the logistic model to successfully predict the success or failure of an individual shot attempt. A relatively low accuracy measure is to be expected for any classification model involving the prediction of irregular human behavior. With that in mind, an area under the curve of 0.62 is more than serviceable for this exploration, and gives us the confidence to move forward with our modeling predictions. 
+
+### Random Forests
+
+Despite the adequate performance of the logistic regression model, it is nonetheless worthwhile to see if predictive power could be improved by using more advanced machine learning strategies. To do this, we create a random forest model from the same training data. A random forest is a statistical learning method that combines a large sum of individual decision trees (in this case, 500) to form a single ensemble model. Each regression tree partitions the data into smaller groups that are homogeneous with respect to the predictors, and then makes a classification based on the average value of the response in each group. The random forest then aggregates the predictions of each individual decision to tree to generate a single prediction for each observation. The motivation behind this modeling technique is that a large collection of relatively uncorrelated models will likely outperform its individual components. That being said, improvements in accuracy on account of random forests often come at the expense of interpretability and computational ease.
+
+```{r echo=FALSE, fig.height=3, fig.width=5, message=FALSE, warning=FALSE, fig.cap="ROC curve plotting sensitivity against type I error rate for the random forest model. The area under the curve is equal to approximately 0.61."}
+# ROC
+rfmodel <- randomForest(as.numeric(FGM) ~. -PTS -SHOT_RESULT -player_id -player_name, 
+                        data = sampleData_join,  ntrees = 500)
+
+expctrf <- predict(rfmodel, data, type = "response")
+data <- cbind(data, expctrf)
+data <- data %>%
+  mutate(exptsrf = expctrf*PTS_TYPE)
+
+library(pROC)
+rfpreds <- predict(rfmodel, data, type = "response")
+rfroc_curve <- roc(response = data$FGM, predictor = as.numeric(rfpreds))
+ggroc(rfroc_curve, legacy.axes = TRUE) + theme_classic() + 
+    geom_segment(aes(x = 0, xend = 1, y = 0, yend = 1), color="grey", linetype="dashed")
+```
+
+
+Surprisingly, in this particular application, implementing random forests actually fails to improve modeling accuracy. An area under the curve of approximately 0.61 (see Figure 1.5) suggests marginally worse predictive performance than the logistic regression. This is likely due to the fact that the relationships between the predictors and response are adequately approximated by a linear relationship (as opposed to a decision tree). Additionally, almost all of the predictors in the data set are continuous rather than categorical. While using random forests is a particularly powerful modeling strategy for handling categorical data, the technique does not necessarily offer the same advantage when model features are continuous. Because the logistic regression model is both more interpretable and better-performing than the more complex approach, we can proceed confidently with logistic regression as our model of choice.
+
+## Discussion
+
+In addition to establishing an expected utility framework with which to perform ensuing behavioral economic analysis, the logistic regression model can also offer insights on individual- and team-level player performance. For example, by aggregating and comparing each team's expected points per shot attempt, we can determine which teams are generating the most and least utility-maximizing shot attempts (see Figure 1.7). 
+
+Alternatively, looking at actual points per shot attempt (as opposed to expected) reveals which teams are getting the best material returns on said shot attempts (see Figure 1.8). These results are therefore a function of both the player decision making in the creation of the shot attempt and the actual execution of the shot attempt itself. Teams that rank highly in expected points per shot attempt but not actual points per shot attempt are thus adhering to a utility-maximizing strategic approach, but are simply not executing their high-probability shots. This residual is one of many inevitable human elements present in the sport of basketball. That being said, teams that create high-probability shot attempts generally experience a greater return in terms of points per shot attempt (see Figure 1.9). Because winning a basketball game is predicated on outscoring the opponent, a higher expected points per shot attempt necessarily predicts a greater winning percentage (see Figure 1.10).
+
+The modeling results from this chapter extend beyond the preliminary data visualizations offered here. While aggregating the data by team is certainly productive in assisting basketball organizations' analyses of on-court performance, the model can also be used to assess the aggregate shooting patterns of individual players. Tables 1.2 and 1.3, for example, present the players who generate the greatest and lowest expected field goal percentage on their shot attempts. Table 1.4, meanwhile, presents the players with the greatest expected points per shot attempt relative to modeling expectations. These applications are just a few of the countless ways to implement the logistic regression model in the analysis of in-game player performance. Reducing the scope further, we can even calculate the expected probability and predicted return on any single shot attempt---however, the subsequent chapter will focus on broader patterns in aggregate shooting behavior for the entire NBA. 
+
+
+```{r echo=FALSE}
+# Summarization
+
+exPCT <- predict(model, savant, type = "response")
+savant <- cbind(savant, exPCT)
+savant <- savant %>%
+  mutate(exPTS = exPCT*TYPE)
+
+savant <- savant %>%
+  mutate(PTS = as.numeric(shot_made_flag*TYPE))
+
+summary_player <- savant %>%
+  group_by(name) %>%
+  summarize(AVG_DIST = mean(DIST),
+            AVG_DRIBBLES = mean(DRIBBLES),
+            AVG_TOUCH_TIME = mean(TOUCH_TIME),
+            AVG_DEF_DIST = mean(DEF_DIST),
+            AVG_CLOCK = mean(SHOT_CLOCK),
+            FG = sum(FGM == 1),
+            FGA = (sum(FGM == 0)) + sum(FGM == 1),
+            PCT = FG/FGA,
+            THREES = sum(PTS == 3),
+            eEG = (FG + 0.5*THREES)/FGA,
+            exPCT = mean(exPCT),
+            PCT_DIFF = PCT-exPCT,
+            `PTS/FGA` = sum(PTS)/FGA,
+            `exPTS/FGA` = sum(exPTS)/FGA,
+            diff = `PTS/FGA`-`exPTS/FGA`)
+
+summary_player <- summary_player %>%
+  filter(FGA >= 100)
+
+summary_team <- savant %>%
+  group_by(team_name) %>%
+  summarize(AVG_DIST = mean(DIST),
+            AVG_DRIBBLES = mean(DRIBBLES),
+            AVG_TOUCH_TIME = mean(TOUCH_TIME),
+            AVG_DEF_DIST = mean(DEF_DIST),
+            AVG_CLOCK = mean(SHOT_CLOCK),
+            FG = sum(FGM == 1),
+            FGA = (sum(FGM == 0)) + sum(FGM == 1),
+            PCT = FG/FGA,
+            THREES = sum(PTS == 3),
+            eEG = (FG + 0.5*THREES)/FGA,
+            exPCT = mean(exPCT),
+            PCT_DIFF = PCT-exPCT,
+            `PTS/FGA` = sum(PTS)/FGA,
+            `exPTS/FGA` = sum(exPTS)/FGA,
+            diff = `PTS/FGA`-`exPTS/FGA`)
+```
+
+```{r echo=FALSE}
+#Standardization
+
+summary_team <- summary_team %>%
+  mutate(`Standardized PTS/FGA` = scale(`PTS/FGA`)) %>%
+  mutate(`Standardized exPTS/FGA` = scale(`exPTS/FGA`)) %>%
+  mutate(`Standardized exFG%` = scale(`exPCT`)) %>%
+  mutate(`Standardized Diff` = scale(`diff`))
+
+summary_team$PTS_type <- ifelse(summary_team$`Standardized PTS/FGA` < 0, "below", "above")
+
+summary_team$exPTS_type <- ifelse(summary_team$`Standardized exPTS/FGA` < 0, "below", "above")
+
+team_tidy <- summary_team %>%
+  rename(Team = team_name) %>%
+  pivot_longer(cols = c(`PTS/FGA`, `exPTS/FGA`), 
+               names_to = "type",
+               values_to = "value")
+
+summary_team$wins <- c(60, 40, 38, 33, 50, 53, 50, 30, 32, 67, 56, 38, 56, 21, 55, 37, 41, 16, 45, 17, 45, 25, 18, 39, 51, 29, 55, 49, 38, 46)
+
+summary_team$losses <- c(22, 42, 44, 49, 32, 29, 32, 52, 50, 15, 26, 44, 26, 61, 27, 45, 41, 66, 37, 65, 37, 57, 64, 43, 31, 53, 27, 33, 44, 36)
+
+summary_team$`Win %` <- summary_team$wins/82
+```
+
+
+```{r, echo=FALSE, fig.width=6,fig.height=6, fig.cap="Diverging horizontal bar graph illustrating the standardized 2014-15 expected points per field goal attempt amongst all 30 NBA teams, arranged in descending order."}
+ggplot(summary_team, aes(x = reorder(team_name, `Standardized exPTS/FGA`),
+                          y = `Standardized exPTS/FGA`,
+                          label = `Standardized exPTS/FGA`)) + 
+  geom_bar(stat = 'identity', aes(fill = exPTS_type), width = .5)  +
+  scale_fill_manual(name = " ", 
+                    labels = c("Above Average", "Below Average"), 
+                    values = c("above"="deepskyblue", "below"="palevioletred2")) + 
+  labs(x = "Team",
+       y = "Standardized exPTS/FGA") + 
+  coord_flip() +
+  theme_minimal()
+```
+
+```{r, echo=FALSE, fig.width=6,fig.height=6, fig.cap="Diverging horizontal bar graph illustrating the standardized 2014-15 actual points per field goal attempt amongst all 30 NBA teams, arranged in descending order."}
+ggplot(summary_team, aes(x = reorder(team_name, `Standardized PTS/FGA`),
+                          y = `Standardized PTS/FGA`,
+                          label = `Standardized PTS/FGA`)) + 
+  geom_bar(stat = 'identity', aes(fill = PTS_type), width = .5)  +
+  scale_fill_manual(name = " ", 
+                    labels = c("Above Average", "Below Average"), 
+                    values = c("above"="deepskyblue", "below"="palevioletred2")) + 
+  labs(x = "Team",
+       y = "Standardized PTS/FGA") + 
+  coord_flip() +
+  theme_minimal()
+```
+
+
+
+```{r echo=FALSE, fig.height=7, fig.width=7, message=FALSE, warning=FALSE, paged.print=FALSE, fig.cap="Contour plot separating all 30 NBA teams along both standardized expected field goal percentage and standardized points per field goal attempt for the 2014-15 season. Teams greater than one standard deviation from the mean in both statistics or one and a half standard deviations from the mean in one statistic are highlighted."}
+ggplot() +
+  scale_x_continuous(name = "Standardized exFG%",
+                     breaks = seq(-3, 3, 1),
+                     limits =c(-3, 3)) +
+  scale_y_continuous(name = "Standardized PTS/FGA",
+                     breaks = seq(-3, 3, 1),
+                     limits =c(-3, 3)) +
+    geom_density_2d(data = summary_team, 
+             aes(x = `Standardized exFG%`, 
+                 y = `Standardized PTS/FGA`),
+             color = "dodgerblue2", alpha = 0.2, size = 1) +
+  geom_rect(aes(xmin = 0, ymin = 0, xmax = 3, ymax = 3), 
+            fill = "deepskyblue", alpha = 0.2) +
+  geom_rect(aes(xmin = -3, ymin = -3, xmax = 0, ymax = 0), 
+            fill = "palevioletred2", alpha = 0.2) +
+  geom_point(data = summary_team, 
+             aes(x = `Standardized exFG%`, 
+                 y = `Standardized PTS/FGA`),
+             shape = 21,
+             colour = "dodgerblue", 
+             fill = "grey100", 
+             size = 6) +
+  geom_text(data = subset(summary_team, 
+                          `Standardized exFG%` > 1.5 | 
+                          `Standardized PTS/FGA` > 1.5),
+            aes(x = `Standardized exFG%` , 
+                y = `Standardized PTS/FGA`, 
+                label = team_name),
+            size = 3,
+            alpha = 0.8,
+            hjust = 0.3,
+            vjust = -1.5) + 
+    geom_text(data = subset(summary_team, 
+                          `Standardized exFG%` < -1.5 | 
+                          `Standardized PTS/FGA` < -1.5),
+            aes(x = `Standardized exFG%` , 
+                y = `Standardized PTS/FGA`, 
+                label = team_name),
+            size = 3,
+            alpha = 0.8,
+            hjust = 0.3,
+            vjust = -1.5) + 
+    geom_text(data = subset(summary_team, 
+                          `Standardized exFG%` < -1 &
+                          `Standardized PTS/FGA` > 1),
+            aes(x = `Standardized exFG%` , 
+                y = `Standardized PTS/FGA`, 
+                label = team_name),
+            size = 3,
+            alpha = 0.8,
+            hjust = 0.3,
+            vjust = -1.5) + 
+   geom_text(data = subset(summary_team, 
+                          `Standardized exFG%` < -1 &
+                          `Standardized PTS/FGA` < -1),
+            aes(x = `Standardized exFG%` , 
+                y = `Standardized PTS/FGA`, 
+                label = team_name),
+            size = 3,
+            alpha = 0.8,
+            hjust = 0.3,
+            vjust = -1.5) + 
+  theme_minimal()
+```
+
+```{r echo=FALSE, fig.height=5, fig.width=6, message=FALSE, warning=FALSE, fig.cap="Scatter plot illustrating the linear association between expected points per field goal attempt and team winning percentage for all 30 NBA teams in 2014-15. Correlation coefficient of 0.46."}
+
+ggplot(summary_team,
+       aes(x = `exPTS/FGA`,
+           y = `Win %`)) +
+    geom_smooth(method = lm,
+              color = "grey60",
+              alpha = 0.3) +
+  geom_point(size = 2, alpha = 1, color = "darkorange") +
+  theme_classic()
+```
+
+```{r echo=FALSE, fig.height=8, fig.width=7, message=FALSE, warning=FALSE, paged.print=FALSE, fig.cap="Ridgeline chart comparing the distribution in expected points for all field goal attempts by team. A larger spread represents a greater variance in expected points for a given team."}
+# Create Quarter Game-state Variable
+
+savant %>%
+ggplot(aes(x = exPTS, y = team_name, fill = team_name)) +
+  geom_density_ridges() +
+  scale_x_continuous(limits = c(0, 2.5)) +
+  labs(x = "exPTS/FGA",
+       y = "Team") + 
+  theme_ridges() + 
+  theme(legend.position = "none")
+```
+
+```{r echo=FALSE}
+
+summary_player_table1 <- summary_player %>%
+  filter(FGA >= 250) %>%
+  select(name, AVG_DIST, AVG_DEF_DIST, AVG_TOUCH_TIME, AVG_CLOCK, exPCT) %>%
+  rename(Name = name,
+         DIST = AVG_DIST,
+         DEF_DIST = AVG_DEF_DIST,
+         TOUCH_TIME = AVG_TOUCH_TIME,
+         SHOT_CLOCK = AVG_CLOCK,
+         `exFG%` = exPCT) %>%
+  mutate(DIST = format(round(DIST, 2), nsmall = 2)) %>%
+  mutate(DEF_DIST = format(round(DEF_DIST, 2), nsmall = 2)) %>%
+  mutate(TOUCH_TIME = format(round(TOUCH_TIME, 2), nsmall = 2)) %>%
+  mutate(SHOT_CLOCK = format(round(SHOT_CLOCK, 1), nsmall = 1)) %>%
+  mutate(`exFG%` = format(round(`exFG%`, 3), nsmall = 3)) %>%
+  filter(`exFG%` > 0.607) %>%
+  arrange(desc(`exFG%`))
+
+kbl(summary_player_table1, booktabs = T, caption = "Players With the Greatest Expected Field Goal Percentage (2014-15)") %>%
+kable_classic(full_width = F, html_font = "Serif") %>%
+  kable_styling(latex_options = c("hold_position")) %>%
+  kable_styling(latex_options = c("scale_down")) %>%
+ footnote(general = "Minimum 250 total field goal attempts.")
+```
+
+```{r echo=FALSE, fig.height=4, fig.width=6, message=FALSE, warning=FALSE, paged.print=FALSE, fig.cap="Shot chart illustrating the distribution of DeAndre Jordan's 2014-15 shot attempts in space."}
+DeAndre <- savant %>%
+  filter(name == "DeAndre Jordan")
+
+ggplot(DeAndre,
+       aes(x = x,
+           y = y)) +
+  geom_jitter(alpha = 0.5, aes(color = FGM)) +
+  scale_color_manual(name = " ", 
+                     labels = c("Miss", "Make"), 
+                     values = c("0" = "palevioletred2", "1" = "deepskyblue")) + 
+  scale_x_continuous(limits = c(-300, 300)) +
+  theme_bw() +
+  theme(line = element_blank())
+```
+
+```{r echo=FALSE}
+
+summary_player_table2 <- summary_player %>%
+  filter(FGA >= 250) %>%
+  select(name, AVG_DIST, AVG_DEF_DIST, AVG_TOUCH_TIME, AVG_CLOCK, exPCT) %>%
+  rename(Name = name,
+         DIST = AVG_DIST,
+         DEF_DIST = AVG_DEF_DIST,
+         TOUCH_TIME = AVG_TOUCH_TIME,
+         SHOT_CLOCK = AVG_CLOCK,
+         `exFG%` = exPCT) %>%
+  mutate(DIST = format(round(DIST, 2), nsmall = 2)) %>%
+  mutate(DEF_DIST = format(round(DEF_DIST, 2), nsmall = 2)) %>%
+  mutate(TOUCH_TIME = format(round(TOUCH_TIME, 2), nsmall = 2)) %>%
+  mutate(SHOT_CLOCK = format(round(SHOT_CLOCK, 1), nsmall = 1)) %>%
+  mutate(`exFG%` = format(round(`exFG%`, 3), nsmall = 3)) %>%
+  filter(`exFG%` < 0.431) %>%
+  arrange(`exFG%`)
+
+kbl(summary_player_table2, booktabs = T, caption = "Players With the Lowest Expected Field Goal Percentage (2014-15)") %>%
+kable_classic(full_width = F, html_font = "Serif") %>%
+  kable_styling(latex_options = c("hold_position")) %>%
+  kable_styling(latex_options = c("scale_down")) %>%
+ footnote(general = "Minimum 250 total field goal attempts.")
+```
+
+```{r echo=FALSE, fig.height=4, fig.width=6, message=FALSE, warning=FALSE, paged.print=FALSE, fig.cap="Shot chart illustrating the distribution of Nick Young's 2014-15 shot attempts in space."}
+Nick <- savant %>%
+  filter(name == "Nick Young")
+
+ggplot(Nick,
+       aes(x = x,
+           y = y)) +
+  geom_jitter(alpha = 0.5, aes(color = FGM)) +
+  scale_color_manual(name = " ", 
+                     labels = c("Miss", "Make"), 
+                     values = c("0" = "palevioletred2", "1" = "deepskyblue")) + 
+  scale_x_continuous(limits = c(-300, 300)) +
+  theme_bw() +
+  theme(line = element_blank())
+```
+
+```{r echo=FALSE, fig.height=4, fig.width=6, message=FALSE, warning=FALSE, paged.print=FALSE, fig.cap="Density plot illustrating the distribution of DeAndre Jordan's 2014-15 shot attempts in space."}
+ggplot(DeAndre,
+       aes(x = x,
+           y = y)) +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+  scale_fill_distiller(palette = "Spectral", direction = -1) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  scale_x_continuous(limits = c(-300, 300)) +
+  theme(legend.position='none') +
+  theme_bw() +
+  theme(line = element_blank())
+```
+
+```{r echo=FALSE, fig.height=4, fig.width=6, message=FALSE, warning=FALSE, paged.print=FALSE, fig.cap="Density plot illustrating the distribution of Nick Young's 2014-15 shot attempts in space."}
+ggplot(Nick,
+       aes(x = x,
+           y = y)) +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+  scale_fill_distiller(palette = "Spectral", direction = -1) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme(legend.position='none') +
+   scale_x_continuous(limits = c(-300, 300)) +
+  theme_bw() +
+  theme(line = element_blank())
+```
+
+
+```{r echo=FALSE}
+
+summary_player_table3 <- summary_player %>%
+  filter(FGA >= 250) %>%
+  filter(THREES > 50) %>%
+  filter(diff > 0) %>%
+  select(name, PCT, exPCT, `PTS/FGA`, `exPTS/FGA`, diff) %>%
+  rename(Name = name,
+         `FG%` = PCT,
+         `exFG%` = exPCT,
+         Difference = diff) %>%
+  mutate(`FG%` = format(round(`FG%`, 3), nsmall = 3)) %>%
+  mutate(`exFG%` = format(round(`exFG%`, 3), nsmall = 3)) %>%
+  mutate(`PTS/FGA` = format(round(`PTS/FGA`, 3), nsmall = 3)) %>%
+  mutate(`exPTS/FGA` = format(round(`exPTS/FGA`, 3), nsmall = 3)) %>%
+  mutate(`Difference` = format(round(`Difference`, 3), nsmall = 3)) %>%
+  arrange(desc(Difference))
+
+kbl(summary_player_table3, booktabs = T, caption = "Players With the Greatest Difference Between Expected and Actual Points Per Field Goal Attempt (2014-15)") %>%
+kable_classic(full_width = F, html_font = "Serif") %>%
+  kable_styling(latex_options = c("hold_position")) %>%
+  kable_styling(latex_options = c("scale_down")) %>%
+ footnote(general = "Minimum 250 total field goal attempts and 50 three-point field goal attempts.")
+```
+

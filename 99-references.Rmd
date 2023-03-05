@@ -1,0 +1,42 @@
+<!--
+The bib chunk below must go last in this document according to how R Markdown renders.  More info is at http://rmarkdown.rstudio.com/authoring_bibliographies_and_citations.html
+-->
+
+\backmatter
+
+<!-- 
+If you'd like to change the name of the bibliography to something else,
+delete "References" and replace it.
+-->
+
+# References {-}
+<!--
+This manually sets the header for this unnumbered chapter.
+-->
+\markboth{References}{References}
+<!--
+To remove the indentation of the first entry.
+-->
+\noindent
+
+<!--
+To create a hanging indent and spacing between entries. This line may need 
+to be removed for styles that don't require the hanging indent.
+-->
+
+\setlength{\parindent}{-0.20in}
+
+
+<!--
+This is just for testing with more citations for the bibliography at the end.  Add other entries into the list here if you'd like them to appear in the bibliography even if they weren't explicitly cited in the document.
+-->
+
+---
+nocite: | 
+  @anbarci_revisiting_2018, @kahneman_psychology_1973, @paul_bettor_2014,
+  @yaari_hot_2011, @miller_is_202, @gilovich_hot_1985, @raab_simple_2012,
+  @larkey_its_1989, @simon_behavioral_1955, @kahneman_prospect_1979,
+  @thaler_toward_1980, @tversky_judgment_1974, @sachau_birdie_2012,
+  @elmore_loss_2021, @gomez_shaq_2018, @green_hot_2013, @james_introduction_2013,
+  @yashiki_moneyball_2020, @koehler_hot_2003, @meehan_predicting_nodate
+...

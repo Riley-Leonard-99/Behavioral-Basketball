@@ -1,0 +1,13 @@
+# Conclusion {-}
+
+Joining the domains of basketball and behavioral economics provides a reciprocal understanding of the two ostensibly disparate fields. By conceptualizing basketball players as economic agents, we are able to determine if their behavior conforms to or deviates from prevailing academic theories on individual decision making. Meanwhile, applying a behavioral economic framework to the analysis of basketball data allows us to articulate patterns and inefficiencies in player performance. Identifying these inefficiencies---such as the deviation from utility-maximizing strategy in specific game contexts---is of considerable value to professional basketball organizations. 
+
+Future research on the topic of decision making in basketball should be able to utilize newer data (if accessible) and more advanced statistical techniques, both in model construction and statistical tests. These changes will provide more accurate and constructive insights, which will benefit researchers and participants alike.
+
+Of course, we would be remiss not to acknowledge the magical moments in the sport of basketball that cannot be modeled or quantified. Returning to one of the greatest shots in NBA history, Damian Lillard's 37-foot game-winner against the Oklahoma City Thunder did not exactly possess the qualities of a high-efficiency field goal attempt. In fact, according to our model, Lillard's effort had an expected field goal percentage of just over 0.05. In many respects, Paul George was right---it might not have been the most utility-maximizing shot decision. But it was anything but a *bad shot*.
+
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+
+![Damian Lillard waves goodbye after sinking his legendary game-winning shot against the Oklahoma City Thunder. Courtesy of Sean Meagher (The Oregonian).](Plots/DameTime.png){width=50%, height=50%}

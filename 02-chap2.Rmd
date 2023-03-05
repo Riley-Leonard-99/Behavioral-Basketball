@@ -1,0 +1,562 @@
+# Prospect Theory and Professional Basketball
+
+## What is Behavioral Economics?
+
+In the broadest terms, the field of behavioral economics is concerned with divergences in economic decision making from the expectations of neo-classical theory, principally due to the irrationality of individual economic agents. The assumption that people exclusively make utility-maximizing decisions is a tenuous premise, and behavioral economics attempts to revise these idealized models of human behavior. By relaxing the assumption of perfect rationality, behavioral economists can begin to assess and understand the previously ignored cognitive factors that inform economic behavior.
+
+The application of behavioral economics is also relevant to the study of individual decision making in basketball, as players are imperfect in determining optimal shooting strategies. Simply put, there is no *homo economicus* in the sport of basketball---players are human, and humans are prone to lapses in judgement. In basketball, these lapses in judgement occur every game. Sometimes a star point guard resorts to "hero ball" in the closing minutes of a tight contest, taking an excessive amount of high-risk shots in situations that might demand a safer approach. In other cases, a player may become tentative when aiming to preserve a slim lead, growing too risk-averse and avoiding shot attempts with higher expected return.
+
+Regardless, it is reasonable to imagine that player behavior will change when varying levels of risk and uncertainty are introduced. Assessing the sources and consequences of these inconsistencies is thus of great interest to basketball players and organizations. While the previous chapter focused on building a straightforward model of the expected utility of individual shot attempts, this chapter is chiefly concerned with identifying contexts where expected utility is heterogeneous with respect to these specific risk environments.
+
+## Foundations of Behavioral Economics
+
+One of the earliest challenges to the neo-classical model of economic decision making was Herbert A. Simon's concept of bounded rationality. Whereas the prevailing neo-classical framework revolved heavily around the notion of humans as utility-maximizing entities with rational preferences, Simon searched for an alternative basis that integrated the limitations of human cognition. Describing the concept of bounded rationality in *Administrative Behavior*, Simon wrote, "the capacity of the human mind for formulating and solving complex problems is very small compared with the size of the problems whose solution is required for objectively rational behavior in the real world." (Simon 1957)
+
+In the late 1970s, cognitive psychologists Daniel Kahneman and Amos Tversky began collaborating on a series of academic publications on the subject of decision making under risk, extending Simon's idea of bounded rationality. This collaboration resulted in the introduction of prospect theory---an alternative model to the existing expected utility hypothesis (Kahneman & Tversky 1979). This theory, as well as Kahneman's later work with economist Richard Thaler (Thaler 1980), would serve as the foundation for behavioral economics as a field. 
+
+In their model, Kahneman and Tverseky aimed to frame risky and uncertain decisions, and posited that individuals may be either risk-averse or risk-seeking (as opposed to strictly utility-maximizing). According to prospect theory, when presented with potential gains, individuals are risk-averse---preferring certainty at the expense of higher expected utility. Conversely, when presented with potential losses, individuals are risk-seeking---opting for decisions with lower expected utility in order to avoid losses. This concept of loss aversion directly contradicted neo-classical expected utility theory, which strictly considered choices that maximize utility. 
+
+Thinking back to the previous basketball examples, we can think of a loss-averse basketball player as one who takes too many high-risk shots when trailing in a close game (and thus presented with a potential loss). A risk-averse player would be one who takes too many safe shots (i.e., high-percentage two-point attempts) when sitting on a lead. Ultimately, the goal of the subsequent analysis is to see if NBA players, in aggregate, conform to or deviate from utility-maximizing behavior. We are then interested in the behavioral economic rationale behind possible divergences.
+
+## Literature Review
+
+In addition to the aforementioned foundational texts of Simon (1957), Tversky (1979), Kahneman (1974), and Thaler (1980); this paper interacts with a broader academic literature on decision making in sports. Perhaps more than any other sport, golf is a popular focus for behavioral economists (Pope & Elmore 2011; Sachau & Simmering 2012; Elmore & Urbaczewski 2020). Generally, the literature finds that professional golfers are asymmetrical in their risk preferences, depending on whether or not they are presented with potential gains or losses. The perception of these gains and losses is often shaped by a particular reference point, such as the "cut" in a major tournament. 
+
+Other studies have found similar effects of reference dependence and loss aversion in the sports of baseball (Yashiki & Nakazono 2020) and tennis (Anbarci et al. 2018). These specific sports are somewhat unique in the fact that they are less focused on team performance and more on individual performance. In baseball, the interaction between the pitcher and hitter is largely independent of the behavior of the other eight players on the field. Tennis and golf, meanwhile, are purely individual sports. This fact makes these sports particularly accessible domains for behavioral economists, as a focus on individual decision making is especially relevant when each economic agent is in direct competition with each other.
+
+Basketball, being a team sport, is therefore less studied in the field of behavioral economics. While some papers have analyzed the effect of game context on measures of player performance such as free throw percentage (Gomez et al. 2018), there remains a lack of academic research on player decision making. Computer scientist Brett Meehan developed a predictive model of the expected points of individual shot attempts (similar to that in chapter one), but his paper acts more as a practice of model construction and optimization than behavioral analysis (Meehan 2017). With this in mind, the following behavioral economic exploration aims to shed light on a largely uncharted realm of basketball scholarship.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+## Load CSVs
+games <- read_csv("Data/2014-2015.csv")
+shots <- read_csv("Data/shot_logs.csv")
+
+
+## Wrangling
+
+# Select Variables (Game Log)
+
+games <- games %>%
+  dplyr::select(game_id, date, period, away_score, home_score, remaining_time, elapsed, play_id,
+         team, player, event_type, result, points, assist, play_length, type, 
+         shot_distance, original_x, original_y, converted_x, converted_y, description) %>%
+  filter(event_type == "shot") %>%
+  filter(game_id < 21400909)
+
+# Average Lead Variable
+
+summary <- games %>%
+  mutate(pts_diff = away_score - home_score) %>%
+  group_by(game_id, period) %>%
+  summarize(AVG_DIFF = mean(pts_diff)) %>%
+  mutate(AVG_DIFF = format(round(AVG_DIFF, 3), nsmall = 3))
+
+
+# Create Period ID
+
+shots$PERIOD_ID <- paste0(shots$GAME_ID, shots$PERIOD)
+summary$PERIOD_ID <- paste0(summary$game_id, summary$period)
+
+
+# Join Data
+
+summary <- summary %>%
+  dplyr::select(PERIOD_ID, AVG_DIFF)
+  
+shots <- left_join(shots, summary, by = "PERIOD_ID")
+
+
+# Final Clean Up (2014-2015)
+
+data <- shots %>%
+  drop_na() %>%
+  dplyr::select(-MATCHUP, -CLOSEST_DEFENDER, -CLOSEST_DEFENDER_PLAYER_ID, -game_id) %>%
+  rename(DIST = SHOT_DIST,
+         DEF_DIST = CLOSE_DEF_DIST)
+
+
+## Summary Data
+
+summary_data <- data %>%
+  drop_na() %>%
+  group_by(player_name) %>%
+  summarize(`AVG DIST` = mean(DIST),
+            `AVG DRIBBLES` = mean(DRIBBLES),
+            `AVG TOUCH_TIME` = mean(TOUCH_TIME),
+            `AVG DEF_DIST` = mean(DEF_DIST),
+            `AVG SHOT_CLOCK` = mean(SHOT_CLOCK),
+            `AVG DIFF` = mean(as.numeric(AVG_DIFF)),
+            fg = sum(FGM == 1),
+            fga = (sum(FGM == 0)) + sum(FGM == 1),
+            `FG%` = fg/fga,
+            threes = sum(PTS == 3),
+            `eFG%` = (fg + 0.5*threes)/fga,
+            `PTS/FGA` = mean(PTS)/fga)
+
+summary_data <- summary_data %>%
+  filter(fga >= 100)
+
+
+## Savant Data Frame
+
+savant1 <- read_csv("Data/train1.csv")
+savant2 <- read_csv("Data/train2.csv")
+savant3 <- read_csv("Data/train3.csv")
+savant4 <- read_csv("Data/train4.csv")
+savant5 <- read_csv("Data/train5.csv")
+savant6 <- read_csv("Data/train6.csv")
+
+savant <- rbind(savant1, savant2, savant3, savant4, savant5, savant6)
+
+savant <- savant %>%
+  dplyr::select(x, y, name, team_name, period, minutes_remaining, 
+                seconds_remaining, shot_made_flag, shot_distance, 
+                dribbles, touch_time, defender_distance, shot_clock, shot_type) %>%
+  filter(shot_distance < 47) %>%
+  mutate(shot_outcome = as_factor(shot_made_flag))
+
+savant <- savant %>%
+  rename(FGM = shot_outcome,
+         DIST = shot_distance,
+         DRIBBLES = dribbles,
+         TOUCH_TIME = touch_time,
+         DEF_DIST = defender_distance,
+         SHOT_CLOCK = shot_clock,
+         TYPE = shot_type)
+
+savant$TYPE <- substr(savant$TYPE, 1, 1)
+  
+savant$TYPE <- as.numeric(savant$TYPE)
+
+
+## Sampling and Subsetting
+
+set.seed(0)
+
+# Create SHOT_ID
+
+data <- data %>%
+  mutate(SHOT_ID = row_number())
+
+# Sample Data
+
+sample <- sample(data$SHOT_ID, size = 1000)
+
+# Sample Data Frame
+
+sampleData <- as.data.frame(sample) %>%
+  rename(SHOT_ID = "sample")
+
+# Join Data
+
+sampleData_join <- left_join(x = sampleData, y = data, by = "SHOT_ID")
+
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# Model
+
+model <- glm(FGM ~ DIST*DEF_DIST + TOUCH_TIME + SHOT_CLOCK, 
+             data = sampleData_join, family = "binomial")
+
+expct <- predict(model, data, type = "response")
+data <- cbind(data, expct)
+data <- data %>%
+  mutate(expts = expct*PTS_TYPE)
+
+summary(model)
+```
+
+
+## Methodology
+
+### Defining Risk
+
+Risk arises from the inherent uncertainty of economic outcomes---people are invariably presented with the possibility of a certain objective or activity possessing unwanted consequences. For example, in the field of finance, risk is characterized as the variance in expected return of a financial asset. A safe asset offers consistent returns with little deviation from the mean. In recent history, a 10-year treasury bill has returned just over two percent annually, but investors know that the return is highly unlikely to deviate from that value in either direction. Conversely, the equity market historically offers a much greater average return, but with substantially more variance---constituting a riskier investment. The fact that riskier investments in the stock market average a greater return is referred to as the "equity premium". In other words, economic actors are rewarded for assuming high risk. 
+
+In basketball, we can compare the expected returns of different shooting decisions using a similar economic framework. Thinking back to chapter one, the "expected return" of each individual shot attempt was calculated using the same methodology for determining the expected return of any random variable: by computing the product of the probability of a given event (the expected field goal percentage) and the return (the point value of the shot attempt). This now allows us to analyze the risk and reward of different classes of shot attempts, the same way investors look at the risk and reward of different types of assets.
+
+```{r echo=FALSE, fig.height=3, fig.width=6, fig.cap="Overlaid density plots comparing the distribution of expected points by shot type. Dashed vertical lines represent means of 1.07 and 1.17 expected points for two-point and three-point field goal attempts respectively. The variance of three-point field goal attempts (0.06) exceeds the variance of two-point field goal attempts (0.05)."}
+# Density Plot (2PA vs. 3PA)
+
+var_three <- data %>% 
+  filter(PTS_TYPE == 3) %>%
+  pull(expts) %>% 
+  var()
+
+var_two <- data %>% 
+  filter(PTS_TYPE == 2) %>%
+  pull(expts) %>% 
+  var()
+
+mean_three <- data %>% 
+  filter(PTS_TYPE == 3) %>%
+  pull(expts) %>% 
+  mean()
+
+mean_two <- data %>% 
+  filter(PTS_TYPE == 2) %>%
+  pull(expts) %>% 
+  mean()
+
+data %>%
+  ggplot(aes(x = expts, fill = as.factor(r_sp))) +
+    geom_density(alpha = 0.25) + 
+    labs(y = "Density",
+         x = "Expected PTS",
+         fill = "Shot Type") +
+    scale_x_continuous(limits = c(0, 3)) +
+  geom_vline(xintercept = mean_three, size = 1, color = "deepskyblue", alpha = 0.5, linetype = "dashed") +
+  geom_vline(xintercept = mean_two, size = 1, color = "hotpink1", alpha = 0.5, linetype = "dashed") +
+    theme_classic()
+
+```
+
+When thinking of appropriate classifications of shot type, the most obvious comparison would be to assess the relative risk and return of two-point and three-point shot attempts. A successful three-point attempt is worth fifty percent more than a successful two-point attempt. Necessarily, the three-point field goal is also a more difficult shot. As a result, there is a greater variance in expected return for three-point shot attempts. But are players rewarded for assuming this extra risk? As Figure 2.1 illustrates, there is a greater mean expected points for three-point attempts than two-point attempts, providing an empirical basis to the notion of a risk premium for more uncertain shot decisions. This additional return on three-point field goal attempts is, at least tacitly, the catalyst behind the NBA's growing volume of three-point shooting.
+
+
+
+### Principle Component Analysis
+
+While defining "safe" and "risky" shooting decisions on the basis of field goal type is reasonable, there may be more congruous divisions of shot type in the data itself. Certainly, comparing two-point and three-point shot attempts generally captures a dichotomy in perceived risk---fans, players, and coaches all universally accept the three-point attempt as a riskier shot decision. As Figure 2.1 confirms, this perception is also validated empirically in the modeling results, suggesting that there also exists a separation in the true risk of two-point and three-point shot attempts. That being said, it may still be of value to search for more pronounced risk-reward divisions in the data using statistical learning techniques, particularly principle component analysis and k-means clustering. 
+
+Principle component analysis (PCA) is an unsupervised machine learning strategy that reduces data dimensionality by combining multiple model features into a smaller number of principle components. Each of these principle components acts as a summary index, with the first principle component representing the line in variable space that maximizes the total variance in the data. The second principle component is then the line in variable space that is orthogonal to the first principle component, while also explaining as much variance in the data as possible. While it is feasible to construct as many principle components as there are independent variables, in most cases, a few principal components can adequately approximate the majority of the data. In this analysis, the first three principal components explained over ninety percent of the total variation in the data, making the inclusion of additional principal components largely redundant. For consistency, we constructed these principal components from the same predictors used in chapter one's model-building.
+
+### K-means Clustering
+
+Here, the PCA primarily serves as one of several steps in a larger k-means clustering algorithm, with the end goal of grouping shot attempts into natural data "clusters". The first step in this algorithm is to determine the statistically optimal number of clusters. This is done using the silhouette method, where the cluster configuration is optimized by assigning a value ("silhouette width") to how similar each observation is to its own cluster relative to other clusters.
+
+```{r echo=FALSE, fig.height=2.5, fig.width=5, fig.cap="Line chart of the number of clusters (k) against the average silhouette width (in euclidean distance)."}
+# Clustering
+set.seed(0)
+
+
+# Sample Data
+
+sample2 <- sample(data$SHOT_ID, size = 3000)
+
+# Sample Data Frame
+
+sampleData2 <- as.data.frame(sample2) %>%
+  rename(SHOT_ID = "sample2")
+
+# Join Data
+
+sampleData_join2 <- left_join(x = sampleData2, y = data, by = "SHOT_ID")
+
+num_data <- sampleData_join2 %>%
+  select(DIST, DEF_DIST, TOUCH_TIME, SHOT_CLOCK)
+  
+pca_data = prcomp(num_data, center = TRUE, scale = TRUE)
+
+pca_transform = as.data.frame(-pca_data$x[,1:3])
+
+
+fviz_nbclust(pca_transform, kmeans, method = 'silhouette')
+```
+
+With an optimal number of clusters determined (three), we perform k-means clustering in conjunction with the previously computed principle components. For computational feasibility, this is done on a random sample of 3000 observations in the data. As illustrated in Figure 2.3, the machine learner groups each of these 3000 observations into one of three clusters in three-dimensional space, with each dimension representing one of the three principal components.
+
+```{r echo=FALSE, fig.height=3, fig.width=5, fig.cap="Scatter plot of the data clusters, with k = 3. Each dimension (x, y, z) captures one of the three principal components (PC1, PC2, PC3), but only two dimensions (x, y) are represented graphically."}
+
+k = 3
+
+kmeans_data = kmeans(pca_transform, centers = k, nstart = 50)
+
+fviz_cluster(kmeans_data, data = pca_transform,
+              ellipse = TRUE,
+             ellipse.type = "convex",
+             main = "",
+             shape = "circle",
+             ellipse.alpha = 0.1,
+             labelsize = 0,
+             pointsize = 1,
+             alpha = 0.5,
+             ggtheme = theme_classic())
+```
+
+One of the biggest issues with PCA is that the reduction in dimensionality comes at the expense of interpretability. While visualizing the clusters graphically allows us to clearly discern divisions in the data, grouping observations on the basis of principal component obscures any sort of contextual meaning. There is a definite distinction between two-point and three-point shot attempts, but the difference between a "cluster one" and "cluster two" shot attempt is less explicit.
+
+```{r echo=FALSE, fig.height=3, fig.width=6, fig.cap="Overlaid density plots comparing the distribution of expected points by cluster."}
+# Assign Clusters
+
+clusters <- as.data.frame(kmeans_data[[1]])
+cluster_data <- cbind(sampleData_join2, clusters)
+
+cluster_data <- cluster_data %>%
+  rename(Cluster = `kmeans_data[[1]]`)
+
+sample_expct <- predict(model, cluster_data, type = "response")
+cluster_data <- cbind(cluster_data, sample_expct)
+cluster_data <- cluster_data %>%
+  mutate(expts = sample_expct*PTS_TYPE)
+
+mean_clust1 <- cluster_data %>% 
+  filter(Cluster == 1) %>%
+  pull(expts) %>% 
+  mean()
+
+mean_clust2 <- cluster_data %>% 
+  filter(Cluster == 2) %>%
+  pull(expts) %>% 
+  mean()
+
+mean_clust3 <- cluster_data %>% 
+  filter(Cluster == 3) %>%
+  pull(expts) %>% 
+  mean()
+
+var_clust1 <- cluster_data %>% 
+  filter(Cluster == 1) %>%
+  pull(expts) %>% 
+  var()
+
+var_clust2 <- cluster_data %>% 
+  filter(Cluster == 2) %>%
+  pull(expts) %>% 
+  var()
+
+var_clust3 <- cluster_data %>% 
+  filter(Cluster == 3) %>%
+  pull(expts) %>% 
+  var()
+
+cluster_data %>%
+  ggplot(aes(x = expts, fill = as.factor(Cluster))) +
+    geom_density(alpha = 0.25) + 
+    labs(y = "Density",
+         x = "Expected PTS",
+         fill = "Cluster") +
+    scale_x_continuous(limits = c(0, 2.5)) +
+    theme_classic()
+
+```
+
+```{r echo=FALSE, fig.height=3, fig.width=6, fig.cap="Overlaid density plots comparing the distribution of expected points by cluster. Dashed vertical lines represent means of 0.95 and 1.08 expected points for cluster one and cluster three field goal attempts respectively. The variance of cluster three field goal attempts (0.06) exceeds the variance of cluster one field goal attempts (0.04)."}
+
+cluster_data %>%
+  filter(Cluster != 2) %>%
+  ggplot(aes(x = expts, fill = as.factor(Cluster))) +
+    geom_density(alpha = 0.25) + 
+    labs(y = "Density",
+         x = "Expected PTS",
+         fill = "Cluster") +
+    scale_x_continuous(limits = c(0, 2.5)) +
+  geom_vline(xintercept = mean_clust1, size = 1, color = "hotpink1", alpha = 0.5, linetype = "dashed") +
+  geom_vline(xintercept = mean_clust3, size = 1, color = "deepskyblue", alpha = 0.5, linetype = "dashed") +
+    theme_classic()
+```
+
+In order to categorize the data clusters into more context-relevant profiles, we again compare the distribution in expected points. As seen in Figure 2.4, each data cluster exhibits a unique distribution in expected points in terms of both central tendency and spread. These differences in turn allow us to define the abstract groupings of data in real basketball terms. 
+
+Cluster one shots possess the lowest mean expected points, but also have the least variance. From a behavioral economic perspective, we can think of these shots as being low-risk (or high-certainty) and low-reward. Conversely, cluster three shots have a greater mean expected points, but also a greater variance. We can think of these shots as being high-risk (or low-certainty) and high-reward. Finally, cluster two shots have both the highest mean expected points and the lowest variance. As a result, cluster two shots can be regarded as high-efficiency, "easy" shots, such as layups and open jump shots. For the purpose of assessing decision making under uncertainty, it is thus more relevant and economically compelling to compare cluster one (low-risk, low-reward shots) and cluster three (high-risk, high-reward shots).
+
+
+## Results
+
+Having constructed two divisions of safe versus risky shots---in terms of defined shot type and underlying data cluster---we can now turn our attention to assessing heterogeneity in player decision making with respect to risk environment. Specifically, we are interested in seeing if basketball players exhibit loss-averse and/or risk-seeking behavior in aggregate. 
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+table <- read_csv("Data/table.csv")
+
+table <- table %>%
+  select(Context, `3-Point Frequency...3`, `Cluster 3 Frequency...2`, `3-Point Frequency...5`, `Cluster 3 Frequency...4`) %>% 
+  rename(` ` = Context,
+         `Cluster 3 Frequency ` = `Cluster 3 Frequency...2`,
+         `Cluster 3 Frequency` = `Cluster 3 Frequency...4`,
+         `3-Point Frequency` = `3-Point Frequency...3`,
+         ` 3-Point Frequency` = `3-Point Frequency...5`)
+
+kbl(table, booktabs = T, caption = "Shot Type Frequency by Game Context") %>%
+add_header_above(c(" ", "All" = 2, "High Leverage" = 2)) %>%
+kable_classic(full_width = F, html_font = "Serif") %>%
+  kable_styling(latex_options = c("HOLD_position")) %>%
+  kable_styling(latex_options = c("scale_down"))
+  
+```
+
+
+
+Table 2.1 summarizes the proportion of high-risk, high-reward (both three-point and cluster three) shot attempts by context. According to the data, their exists a statistically significant ($p < \alpha =  0.05$) difference in the proportion of three-point field goal attempts when a team is leading as opposed to trailing. We see a similar difference in the relative proportions of cluster three field goal attempts. These findings support Kahneman and Tversky's loss-aversion hypothesis---basketball players become risk-seeking when presented with potential losses.
+
+Even more interesting is the fact that the difference in the proportion of high-risk, high-reward shot attempts becomes more pronounced in "high leverage" contexts. High leverage observations refer to any shot attempts that take place in the fourth quarter of a close game (an average point differential of one possession or fewer). The fact that risk environment impacts player decision making suggests that players are materially affected by the presence of higher stakes and win-loss uncertainty. As Figure 2.6 shows, field goal attempts generally produce less expected utility in closer games. Figure 2.7 standardizes mean expected points to more clearly demonstrate the presence of heterogeneity in expected points with respect to risk environment.
+
+If basketball players were fully rational, utility-maximizing economic agents, then the expected utility of field goal attempts would be entirely independent of game context. Instead, we see that mean expected points varies for different conditions. We also identify an asymmetry in risk preference with respect to whether the team attempting a given shot attempt is winning or losing. These deviations from the expectations of neo-classical theory lend plausibility to a more behavioral economic model of decision making in professional basketball.
+
+```{r echo=FALSE, eval=FALSE}
+# Test for Prospect Theory
+
+cluster_data$context[(as.numeric(cluster_data$AVG_DIFF)) > 0] <- "Leading"
+cluster_data$context[(as.numeric(cluster_data$AVG_DIFF)) < 0] <- "Trailing"
+cluster_data$context[(as.numeric(cluster_data$AVG_DIFF)) == 0] <- NA
+
+clust_summary <- cluster_data %>%
+  drop_na() %>%
+  group_by(context) %>%
+  summarize(`Mean exPTS` = mean(expts),
+            `Cluster 1` = sum(Cluster == 1),
+            `Cluster 3` = sum(Cluster == 3),
+             n = n(),
+            `Cluster 1 Frequency` = sum(Cluster == 1) / n(),
+            `Cluster 3 Frequency` = sum(Cluster == 3) / n())
+
+print(clust_summary)
+
+clust_summary_fourth <- cluster_data %>%
+  drop_na() %>%
+  group_by(context) %>%
+  filter(PERIOD == 4) %>%
+  filter(abs(as.numeric(AVG_DIFF)) < 10) %>%
+  summarize(`Mean exPTS` = mean(expts),
+            `Cluster 1` = sum(Cluster == 1),
+            `Cluster 3` = sum(Cluster == 3),
+             n = n(),
+            `Cluster 1 Frequency` = sum(Cluster == 1) / n(),
+            `Cluster 3 Frequency` = sum(Cluster == 3) / n())
+
+print(clust_summary_fourth)
+```
+
+```{r echo=FALSE, eval=FALSE}
+# Test for Prospect Theory
+
+data$context[(as.numeric(data$AVG_DIFF)) > 0] <- "Leading"
+data$context[(as.numeric(data$AVG_DIFF)) < 0] <- "Trailing"
+data$context[(as.numeric(data$AVG_DIFF)) == 0] <- NA
+
+type_summary <- data %>%
+  drop_na() %>%
+  filter(abs(as.numeric(AVG_DIFF)) < 10) %>%
+  group_by(context) %>%
+  summarize(`Mean exPTS` = mean(expts),
+            `Two-point` = sum(PTS_TYPE == 2),
+            `Three-point` = sum(PTS_TYPE == 3),
+             n = n(),
+            `Two-point Frequency` = sum(PTS_TYPE == 2) / n(),
+            `Three-point Frequency` = sum(PTS_TYPE == 3) / n())
+
+type_summary_fourth <- data %>%
+  drop_na() %>%
+  filter(abs(as.numeric(AVG_DIFF)) < 10) %>%
+  filter(PERIOD == 4) %>%
+  group_by(context) %>%
+  summarize(`Mean exPTS` = mean(expts),
+            `Two-point` = sum(PTS_TYPE == 2),
+            `Three-point` = sum(PTS_TYPE == 3),
+             n = n(),
+            `Two-point Frequency` = sum(PTS_TYPE == 2) / n(),
+            `Three-point Frequency` = sum(PTS_TYPE == 3) / n())
+
+type_summary_close <- data %>%
+  drop_na() %>%
+  filter(abs(as.numeric(AVG_DIFF)) < 3) %>%
+  filter(PERIOD == 4) %>%
+  group_by(context) %>%
+  summarize(`Mean exPTS` = mean(expts),
+            `Two-point` = sum(PTS_TYPE == 2),
+            `Three-point` = sum(PTS_TYPE == 3),
+             n = n(),
+            `Two-point Frequency` = sum(PTS_TYPE == 2) / n(),
+            `Three-point Frequency` = sum(PTS_TYPE == 3) / n())
+
+
+print(type_summary)
+print(type_summary_fourth)
+print(type_summary_close)
+
+```
+
+```{r echo=FALSE, eval=FALSE}
+# Z-Tests
+
+res_type <- prop.test(x = c(10578, 12289), n = c(42226, 48356), alternative = c("less"))
+res_type
+
+res_type_fourth <- prop.test(x = c(2297, 2335), n = c(8038, 8561), alternative = c("less"))
+res_type_fourth
+
+res_type_close <- prop.test(x = c(4075, 4350), n = c(17114, 17417), alternative = c("less"))
+res_type_close
+
+res_type_clust <- prop.test(x = c(130, 182), n = c(312, 391), alternative = c("less"))
+res_type_clust
+```
+
+```{r echo=FALSE, fig.height=4, fig.width=6, fig.cap="Bar graph illustrating the mean expected points per field goal attempt for different ranges in point differential. Dashed horizintal line represents mean of 1.08 for all shot attempts."}
+
+data <- data %>% 
+  mutate(AVG_DIFF = as.numeric(AVG_DIFF)) %>%
+  mutate(DIFF_RANGE = cut(AVG_DIFF, breaks =c(-15, -12, -9, -6, -3, 0, 3, 6, 9, 12, 15)))
+
+diff_sum <- data %>%
+  group_by(DIFF_RANGE) %>%
+  filter(PERIOD == 4) %>%
+  summarize(`Mean exPTS` = mean(expts),
+            `Two-point Frequency` = sum(PTS_TYPE == 2) / n(),
+            `Three-point Frequency` = sum(PTS_TYPE == 3) / n()) %>%
+  drop_na()
+
+mean_exp <- data %>% 
+  filter(PERIOD == 4) %>%
+  pull(expts) %>% 
+  mean()
+
+ggplot(diff_sum, aes(x = DIFF_RANGE, y = `Mean exPTS`)) + 
+  geom_bar(stat = "identity", color = "darkorange", fill = "darkorange", alpha = 0.3) +
+  coord_cartesian(ylim = c(1.05, 1.1)) +
+  geom_hline(yintercept = mean_exp, size = 1, color = "grey30", alpha = 0.5, linetype = "dashed") +
+  labs(x = "Point Differential Range",
+       x = "Mean exPTS/FGA") +
+  theme_classic()
+
+```
+
+```{r echo=FALSE, fig.height=5, fig.width=7, fig.cap="Diverging horizontal bar graph illustrating the standardized mean expected points of shot attempts for different ranges in point differential (standardization is performed on the binned data by point differential)."}
+
+data <- data %>% 
+  mutate(DIFF_RANGE_SMALL = cut(AVG_DIFF, breaks =c(-15, -12, -9, -6, -3, 0, 3, 6, 9, 12, 15)))
+
+diff_sum_small <- data %>%
+  group_by(DIFF_RANGE_SMALL) %>%
+  filter(PERIOD == 4) %>%
+  summarize(`Mean exPTS` = mean(expts),
+            `Two-point Frequency` = sum(PTS_TYPE == 2) / n(),
+            `Three-point Frequency` = sum(PTS_TYPE == 3) / n()) %>%
+  drop_na()
+
+diff_sum_standardize <- diff_sum_small %>%
+  mutate(`Standardized Mean exPTS` = scale(`Mean exPTS`))
+
+diff_sum_standardize$exPTS_type <- ifelse(diff_sum_standardize$`Standardized Mean exPTS` < 0, "below", "above")
+
+ggplot(diff_sum_standardize, aes(x = DIFF_RANGE_SMALL,
+                          y = `Standardized Mean exPTS`,
+                          label = `Standardized Mean exPTS`)) + 
+  geom_bar(stat = 'identity', aes(fill = exPTS_type), width = .5)  +
+  scale_fill_manual(name = " ", 
+                    labels = c("Above Average", "Below Average"), 
+                    values = c("above"="deepskyblue", "below"="palevioletred2")) + 
+  labs(x = "Point Differential Range",
+       y = "Standardized Mean exPTS") + 
+  theme(axis.text.x = element_text(angle=45)) +
+  theme_classic()
+```
+
+```{r eval=FALSE, echo=FALSE}
+
+data %>%
+filter(abs(as.numeric(AVG_DIFF)) < 15) %>%
+filter(PERIOD == 4) %>%
+ggplot(aes(x = abs(AVG_DIFF),
+           y = expts)) +
+  geom_point(size = 2, alpha = 0.1, color = "darkorange") +
+      geom_smooth(method = lm,
+              color = "grey60",
+              alpha = 0.3) +
+  theme_classic()
+
+cor(abs(data$AVG_DIFF), data$expts)
+```
+
